@@ -679,6 +679,13 @@
       <label class="opt"><input type="checkbox" id="fabClaim" /> Offer to add blueprints the fabricator shows that I'm missing</label>
       <span class="info" tabindex="0" role="button" aria-label="More info">i<span class="tip">The game only writes a blueprint to your log the moment you receive it, and those logs get deleted over time &mdash; so anything you earned before installing the app can never be detected. The Fabrication Kiosk only lists blueprints you own, so when it shows one we have no record of, you get 30 seconds to add it. You confirm each one, so check the name matches what's on your screen.</span></span>
     </div>
+    <div class="setrow" style="flex-wrap: wrap">
+      <label class="opt" style="margin-left: 26px"><input type="checkbox" id="fabClaimHover" /> &hellip;also just from hovering one, no click needed</label>
+      <span class="info" tabindex="0" role="button" aria-label="More info">i<span class="tip">Reads the small name tooltip the kiosk shows when you hover a blueprint in the list, instead of waiting for you to select it &mdash; quicker for sweeping down a long list. Same 30-second confirm as above; hovering only offers the prompt, it never adds anything by itself.</span></span>
+      <div class="hint" style="width: 100%; margin: 4px 0 0 26px; color: var(--amber)" id="fabClaimHoverWarn">
+        &#9888; Only while the kiosk's own "Owned" filter is ON. With it off the list also shows blueprints you don't have, and hovering one prompts to add it too &mdash; still your call to confirm, but easy to fat-finger if you're sweeping the list fast.
+      </div>
+    </div>
     <div class="setrow">
       <label class="opt"><input type="checkbox" id="repScan" /> Sync my reputation from the in-game REP page</label>
       <span class="info" tabindex="0" role="button" aria-label="More info">i<span class="tip">The game never tells the app your reputation, so it is added up from missions the app watched you finish &mdash; which drifts low whenever the app was closed. Open mobiGlas &rarr; REP with this on and the app reads the rank you are actually at and corrects itself, in whichever direction it was wrong. Nothing leaves your PC. The page is read only while it is on screen; if it is scrolled so a rank is cut off, the app says so rather than guessing.</span></span>
@@ -933,6 +940,7 @@
     document.getElementById("syncEnabled").checked = !!cfg.syncEnabled;
     document.getElementById("fabCapture").checked = !!cfg.fabCapture;
     document.getElementById("fabClaim").checked = !!cfg.fabClaim;
+    document.getElementById("fabClaimHover").checked = !!cfg.fabClaimHover;
     document.getElementById("repScan").checked = !!cfg.repScan;
     document.getElementById("missionOcr").checked = !!cfg.missionOcr;
     document.getElementById("scFeedShowSeconds").value = String(cfg.scFeedShowSeconds ?? 12);
@@ -1002,6 +1010,7 @@
       syncEnabled: document.getElementById("syncEnabled").checked,
       fabCapture: document.getElementById("fabCapture").checked,
       fabClaim: document.getElementById("fabClaim").checked,
+      fabClaimHover: document.getElementById("fabClaimHover").checked,
       repScan: document.getElementById("repScan").checked,
       missionOcr: document.getElementById("missionOcr").checked,
       scFeedShowSeconds: showSecs("scFeedShowSeconds", 12),
@@ -1480,7 +1489,7 @@
   // Auto-save the plain checkboxes the instant they're toggled, so a change can never be lost by
   // closing/scrolling away without clicking Save. (Theme, hotkeys, hold-to-interact and the file
   // pickers already save on change; the sync token stays manual so a half-typed token isn't sent.)
-  ["syncEnabled", "shareLogs", "fabCapture", "fabClaim", "missionOcr", "repScan", "hwAccel", "amdCompat", "revertThemeOnFoot"]
+  ["syncEnabled", "shareLogs", "fabCapture", "fabClaim", "fabClaimHover", "missionOcr", "repScan", "hwAccel", "amdCompat", "revertThemeOnFoot"]
     .forEach((id) => { const el = document.getElementById(id); if (el) el.addEventListener("change", save); });
   // The sync field shows the truncated saved key; clear it on focus so a new token pastes
   // cleanly, and restore the preview on blur if nothing was typed.
@@ -1495,6 +1504,7 @@
       document.getElementById("missionOcr").checked = !!c.missionOcr;
       document.getElementById("fabCapture").checked = !!c.fabCapture;
       document.getElementById("fabClaim").checked = !!c.fabClaim;
+      document.getElementById("fabClaimHover").checked = !!c.fabClaimHover;
       document.getElementById("repScan").checked = !!c.repScan;
     } catch { /* ignore */ }
   });

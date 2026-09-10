@@ -6,7 +6,7 @@
  * Run with:  npx tsx src/screen-classify.test.ts
  * Exits non-zero on any failed case.
  */
-import { classifyScreen, resolveName, stripSizeGrade, type OcrResult, type CatalogEntry } from "./screen-read.js";
+import { classifyScreen, resolveName, stripSizeGrade, bestTooltipMatch, type OcrResult, type CatalogEntry } from "./screen-read.js";
 
 let failed = 0;
 function check(name: string, cond: boolean, detail = ""): void {
@@ -120,6 +120,57 @@ check("size-zero 'SO' still classifies as fabricator", s0Read.kind === "fabricat
   const go = resolveName("IND/2/B BROADSPEC-GO", PREFIX_CATALOG);
   check("...and -Go stays a distinct item", go.name === "BroadSpec-Go", `${go.name} (${go.match})`);
   check("an untagged name still resolves", resolveName("Permafrost", PREFIX_CATALOG).name === "Permafrost");
+}
+
+// ── Fabricator hover tooltip (bestTooltipMatch) — Rytharr, 2026-09-09 ─────────────────────────
+// Unlike the selected-item panel, the hover tooltip has no category/tier row to anchor off, can
+// wrap to two lines, and its position moves with whichever grid cell the cursor is over — so this
+// resolves whatever names are IN the crop directly, geometry below mirrors real 3440x1440 captures.
+{
+  const TOOLTIP_CATALOG: CatalogEntry[] = [
+    { name: "Scalpel Sniper Rifle Magazine (12 cap)", item: "aaaaaaaa-0000-0000-0000-000000000001" },
+    { name: "R97 Shotgun Magazine (18 cap)", item: "aaaaaaaa-0000-0000-0000-000000000002" },
+    { name: "C54 SMG Magazine (50 cap)", item: "aaaaaaaa-0000-0000-0000-000000000003" },
+  ];
+  // Two-line wrap, right of the hovered item — real shape from the "Scalpel" capture.
+  const wrapped = [
+    { text: "Scalpel Sniper Rifle", x: 1216, y: 968, w: 300, h: 34 },
+    { text: "Magazine (12 cap)", x: 1216, y: 1004, w: 300, h: 34 },
+  ];
+  const wrappedHit = bestTooltipMatch(wrapped, TOOLTIP_CATALOG);
+  check("two-line wrapped tooltip resolves as ONE name", wrappedHit?.item === TOOLTIP_CATALOG[0].item, JSON.stringify(wrappedHit));
+  check("...on the exact pass", wrappedHit?.match === "exact", wrappedHit?.match);
+
+  // Single line, no wrap.
+  const single = [{ text: "R97 Shotgun Magazine (18 cap)", x: 901, y: 951, w: 340, h: 34 }];
+  const singleHit = bestTooltipMatch(single, TOOLTIP_CATALOG);
+  check("single-line tooltip resolves", singleHit?.item === TOOLTIP_CATALOG[1].item, JSON.stringify(singleHit));
+
+  // Unrelated list chrome sitting in the same crop must never win over the real name beside it.
+  const withChrome = [
+    { text: "AMMO", x: 683, y: 420, w: 90, h: 20 },
+    { text: "BLUEPRINTS", x: 683, y: 163, w: 140, h: 24 },
+    { text: "1/19", x: 950, y: 1300, w: 60, h: 22 },
+    { text: "C54 SMG Magazine (50 cap)", x: 659, y: 516, w: 340, h: 34 },
+  ];
+  const chromeHit = bestTooltipMatch(withChrome, TOOLTIP_CATALOG);
+  check("real name still resolves amid list chrome", chromeHit?.item === TOOLTIP_CATALOG[2].item, JSON.stringify(chromeHit));
+
+  // No tooltip on screen at all (just chrome) -> no match, never a wrong guess.
+  const noTooltip = [
+    { text: "AMMO", x: 683, y: 420, w: 90, h: 20 },
+    { text: "1/19", x: 950, y: 1300, w: 60, h: 22 },
+  ];
+  check("no tooltip present -> null, not a guess", bestTooltipMatch(noTooltip, TOOLTIP_CATALOG) === null);
+
+  // Two lines far apart on screen (not actually a wrap) must not get glued into one wrong
+  // candidate — the real one still resolves on its own.
+  const farApart = [
+    { text: "Scalpel Sniper Rifle", x: 1216, y: 968, w: 300, h: 34 },
+    { text: "C54 SMG Magazine (50 cap)", x: 659, y: 516, w: 340, h: 34 },
+  ];
+  const farHit = bestTooltipMatch(farApart, TOOLTIP_CATALOG);
+  check("far-apart lines resolve independently, not merged", farHit?.item === TOOLTIP_CATALOG[2].item, JSON.stringify(farHit));
 }
 
 if (failed) {

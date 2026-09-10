@@ -45,7 +45,7 @@ import { FabClaims } from "./fab-claim.js";
 import { SCENARIOS, replayLines, replayMissionId, HAUL_SCENARIOS, haulReplayLines } from "./dev-replay.js";
 import { SiteSync } from "./sync.js";
 import { assetDir } from "./paths.js";
-import { loadCatalog, ocrImage, ocrSelfTest, hasScanHud, classifyScreen, bestSignatureLine, glyphSearchBox, contractRegionOrDefault, DEFAULT_CONTRACT_REGION, type CatalogEntry, type OcrHealth, type OcrResult, type ScanRegion } from "./screen-read.js";
+import { loadCatalog, ocrImage, ocrSelfTest, hasScanHud, classifyScreen, bestSignatureLine, bestTooltipMatch, glyphSearchBox, contractRegionOrDefault, DEFAULT_CONTRACT_REGION, type CatalogEntry, type OcrHealth, type OcrResult, type ScanRegion } from "./screen-read.js";
 import { readRepPage, repReadPayload, repRankFromBars, type RepBarRead } from "./rep-page.js";
 import { parseContractList } from "./contract-list.js";
 import { ContractMatcher } from "./contract-match.js";
@@ -2291,7 +2291,7 @@ let ocrHealth: OcrHealth | null = null;
 let ocrHealthAt = 0;
 function screenReadingOn(): boolean {
   return config.fabCapture === true || config.missionOcr === true
-    || config.miningAssistant === true || config.fabClaim === true;
+    || config.miningAssistant === true || config.fabClaim === true || config.fabClaimHover === true;
 }
 /** Cached, because the first call pays the worker's ~570ms startup. Re-tested on a stale cache so
  *  someone who allow-lists the app mid-session gets a fresh answer without restarting. */
@@ -2857,6 +2857,17 @@ async function handleRequest(req: import("node:http").IncomingMessage, res: Serv
       lastPanelLines = ocr.lines.map((l) => `${Math.round(l.x)},${Math.round(l.y)} ${Math.round(l.w)}x${Math.round(l.h)} ${l.text}`);
       lastFrame = `panel ${ocr.w}x${ocr.h} (RapidOCR)`;
       result = { kind: "none" };
+    } else if (body.fabHoverCrop === true && Array.isArray(body.lines)) {
+      // RapidOCR re-read of the blueprint LIST's bounds — wide enough to cover the hover
+      // tooltip, which sits beside whichever grid item the cursor is over and so moves with it.
+      // No category/tier row to anchor a name off like the selected-item panel has, so this
+      // doesn't reuse classifyScreen's structured layout parser — it just tries every line (and
+      // wrapped-name pairs) in the crop against the catalog directly.
+      const ocr: OcrResult = { w: Number(body.w) || 0, h: Number(body.h) || 0, lines: body.lines };
+      const best = bestTooltipMatch(ocr.lines, screenCatalog);
+      result = best
+        ? { kind: "fabricator", name: best.name, item: best.item, match: best.match, nameRaw: best.nameRaw, viaHover: true }
+        : { kind: "none" };
     } else if (Array.isArray(body.lines)) {
       // Pre-computed OCR from the main process (RapidOCR reads the fabricator name off a right-
       // panel crop). Classify directly — skip the WinRT OCR entirely for this call.
@@ -3820,6 +3831,7 @@ async function handleRequest(req: import("node:http").IncomingMessage, res: Serv
     if (typeof body.fabCapture === "boolean") config.fabCapture = body.fabCapture;
     if (typeof body.missionOcr === "boolean") config.missionOcr = body.missionOcr;
     if (typeof body.fabClaim === "boolean") config.fabClaim = body.fabClaim;
+    if (typeof body.fabClaimHover === "boolean") config.fabClaimHover = body.fabClaimHover;
     if (typeof body.miningAssistant === "boolean") config.miningAssistant = body.miningAssistant;
     if (typeof body.repScan === "boolean") config.repScan = body.repScan;
     // The dragged scan region. `null` resets to the default band. Stored as fractions, and only
@@ -4418,6 +4430,7 @@ async function handleRequest(req: import("node:http").IncomingMessage, res: Serv
         fabCapture: config.fabCapture === true,
         missionOcr: config.missionOcr === true,
         fabClaim: config.fabClaim === true,
+        fabClaimHover: config.fabClaimHover === true,
         miningAssistant: config.miningAssistant === true,
         shareLogs: config.shareLogs === true,
         // Whether the engine actually WORKS here, not just whether it was asked for. Null when no

@@ -684,6 +684,44 @@ export function resolveName(
   return w ? { name: w.name, item: w.item, match: "fuzzy" } : { name: null, item: null, match: "none" };
 }
 
+/** Resolve the fabricator's HOVER tooltip — a small floating box beside whichever grid item the
+ *  cursor is over, showing just the item's name (sometimes wrapped to two lines: "Scalpel Sniper
+ *  Rifle" / "Magazine (12 cap)"). Unlike the selected-item panel, there's no category/tier row to
+ *  anchor a name off — the box can sit anywhere in the list's bounds depending on which row/column
+ *  is hovered — so this tries every line, and every pair of vertically-adjacent, left-aligned
+ *  lines (for a wrapped name), against the catalog directly via resolveName.
+ *
+ *  🔑 Runs the WHOLE candidate set rather than returning on the first hit: an EXACT match must
+ *  always win over a FUZZY one regardless of which was tried first, because the crop also contains
+ *  unrelated list chrome ("BLUEPRINTS", "AMMO", page numbers) that a lenient fuzzy pass could
+ *  otherwise latch onto ahead of the real name sitting right beside it. */
+export function bestTooltipMatch(
+  lines: OcrLine[],
+  catalog: CatalogEntry[],
+): { name: string; item: string; match: "exact" | "fuzzy"; nameRaw: string } | null {
+  const sorted = [...lines].sort((a, b) => a.y - b.y || a.x - b.x);
+  const candidates: string[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    // A wrapped second line sits just under the first, roughly left-aligned with it — the same
+    // shape as the kiosk's own multi-line name grouping above, just without a category row to
+    // measure the gap against, so this uses the line's OWN height instead.
+    if (b && Math.abs(b.x - a.x) < 60 && b.y - (a.y + a.h) > -4 && b.y - (a.y + a.h) < a.h * 1.2) {
+      candidates.push(`${a.text} ${b.text}`);
+    }
+    if (a.text.trim()) candidates.push(a.text);
+  }
+  let best: { name: string; item: string; match: "exact" | "fuzzy"; nameRaw: string } | null = null;
+  for (const raw of candidates) {
+    const { name, item, match } = resolveName(raw, catalog);
+    if (!name || !item || match === "none") continue;
+    if (match === "exact") return { name, item, match, nameRaw: raw };
+    if (!best) best = { name, item, match, nameRaw: raw };
+  }
+  return best;
+}
+
 // ---- Layout extraction --------------------------------------------------------
 
 // OCR isn't character-perfect: the wide-tracked kiosk font drops or mangles a glyph, or splits

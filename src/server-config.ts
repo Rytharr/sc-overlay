@@ -61,6 +61,11 @@ export interface Config {
    *  or rotated-away logbackups) using the one screen that only lists what you own.
    *  Independent of fabCapture — this needs no upload and no sync token. */
   fabClaim: boolean;
+  /** Also offer a claim prompt from the kiosk's HOVER tooltip, not just a fully selected item —
+   *  lets the player sweep the list without clicking each one. Its own opt-in (default off) and
+   *  a warning in the settings UI: the kiosk's own "Owned" filter must stay on, or the tooltip
+   *  also names blueprints the player does NOT own, and hovering one offers the same prompt. */
+  fabClaimHover: boolean;
   /** Mining Assistant: arms the capture loop to read the Refinement Center (job timers)
    *  and the mining scanner signature. Opt-in; read by electron/capture.cjs each poll. */
   miningAssistant: boolean;
@@ -368,6 +373,7 @@ export const DEFAULTS: Config = {
   fabCapture: false,
   missionOcr: false,
   fabClaim: false,
+  fabClaimHover: false,
   miningAssistant: false,
   miningDebug: false,
   scanRegion: null,
