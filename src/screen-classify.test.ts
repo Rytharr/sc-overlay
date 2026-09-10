@@ -163,6 +163,24 @@ check("size-zero 'SO' still classifies as fabricator", s0Read.kind === "fabricat
   ];
   check("no tooltip present -> null, not a guess", bestTooltipMatch(noTooltip, TOOLTIP_CATALOG) === null);
 
+  // REAL INCIDENT (Rytharr, 2026-09-09): the live dataset has a genuinely broken row named
+  // exactly "ARMOR" (a Ship.Shield component with no real name captured). A section-divider
+  // line sitting bare in the crop EXACT-matched it and ticked the wrong blueprint into a real
+  // collection. A section header must never resolve, no matter what garbage the dataset holds.
+  const GARBAGE_CATALOG: CatalogEntry[] = [
+    ...TOOLTIP_CATALOG,
+    { name: "ARMOR", item: "324e5ee4-12b4-4f41-bccc-b3b001398a74" },
+  ];
+  const sectionHeaderOnly = [{ text: "ARMOR", x: 683, y: 420, w: 90, h: 20 }];
+  check("a bare section-header line never resolves, even to a real (garbage) catalog entry",
+    bestTooltipMatch(sectionHeaderOnly, GARBAGE_CATALOG) === null,
+    JSON.stringify(bestTooltipMatch(sectionHeaderOnly, GARBAGE_CATALOG)));
+  // A real item name that happens to START with a category word must still resolve — the
+  // exclusion is "the whole line IS just the category word", not "starts with one".
+  const armorPiercing: CatalogEntry[] = [{ name: "Armor Piercing Rounds", item: "bbbbbbbb-0000-0000-0000-000000000001" }];
+  const piercingHit = bestTooltipMatch([{ text: "Armor Piercing Rounds", x: 683, y: 420, w: 200, h: 20 }], armorPiercing);
+  check("a real name starting with a category word still resolves", piercingHit?.item === armorPiercing[0].item, JSON.stringify(piercingHit));
+
   // Two lines far apart on screen (not actually a wrap) must not get glued into one wrong
   // candidate — the real one still resolves on its own.
   const farApart = [

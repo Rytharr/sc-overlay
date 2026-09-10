@@ -684,6 +684,16 @@ export function resolveName(
   return w ? { name: w.name, item: w.item, match: "fuzzy" } : { name: null, item: null, match: "none" };
 }
 
+/** The blueprint grid's own section-divider row ("AMMO", "ARMOR", …), sitting bare on its own
+ *  line above a group of items — never a candidate name, no matter how it scores. Confirmed the
+ *  hard way (Rytharr, 2026-09-09): the dataset itself has a genuinely broken row named exactly
+ *  "ARMOR" (a Ship.Shield component whose real name was never captured), so a hover landing near
+ *  a section divider EXACT-matched it and ticked a wrong blueprint into a real collection. This is
+ *  the whole line being JUST the category word — distinct from CATEGORY_LINE below, which matches
+ *  a PREFIX on the selected-item panel's "<Category> … Tier" row and would wrongly exclude a real
+ *  item name that happens to start with one of these words (e.g. "Armor Piercing Rounds"). */
+const SECTION_HEADER_ONLY = /^\s*(Armor|Weapons|Vehicles|Clothing|Utility|Ammo|Sustenance|Container|Other)\s*$/i;
+
 /** Resolve the fabricator's HOVER tooltip — a small floating box beside whichever grid item the
  *  cursor is over, showing just the item's name (sometimes wrapped to two lines: "Scalpel Sniper
  *  Rifle" / "Magazine (12 cap)"). Unlike the selected-item panel, there's no category/tier row to
@@ -699,7 +709,9 @@ export function bestTooltipMatch(
   lines: OcrLine[],
   catalog: CatalogEntry[],
 ): { name: string; item: string; match: "exact" | "fuzzy"; nameRaw: string } | null {
-  const sorted = [...lines].sort((a, b) => a.y - b.y || a.x - b.x);
+  const sorted = [...lines]
+    .filter((l) => !SECTION_HEADER_ONLY.test(l.text.trim()))
+    .sort((a, b) => a.y - b.y || a.x - b.x);
   const candidates: string[] = [];
   for (let i = 0; i < sorted.length; i++) {
     const a = sorted[i];
