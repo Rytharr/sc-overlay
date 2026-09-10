@@ -101,6 +101,17 @@ function rightPanelCrop(image, w, h) {
   return { img: image.crop({ x, y: 0, width: cw, height: ch }), w: cw, h: ch };
 }
 
+// The blueprint LIST's bounds, generous enough to also cover its hover tooltip — a small box
+// that appears beside whichever grid item the cursor is over and so moves with it, unlike the
+// fixed upper-right panel above. Measured off real 3440x1440 captures (Rytharr, 2026-09-09):
+// the grid itself runs roughly x 0.20-0.36, and the widest observed tooltip (a 4th-column item)
+// extended to x~0.45; padded further for slack. Fractions are of the captured GAME display.
+function hoverListCrop(image, w, h) {
+  const x = Math.round(w * 0.15), y = Math.round(h * 0.20);
+  const cw = Math.round(w * 0.40), ch = Math.round(h * 0.72);
+  return { img: image.crop({ x, y, width: cw, height: ch }), w: cw, h: ch };
+}
+
 // The mining scan region, in pixels — deliberately duplicated from screen-read.ts's scanRegion()/
 // DEFAULT_SCAN_REGION rather than imported: that module is TypeScript run via tsx in the sidecar
 // process, and this file is plain CommonJS in the Electron main process with no build step wiring
@@ -558,6 +569,7 @@ function startFabCapture({ port, configDir, onStatus, devTools = false }) {
   const tmpPanel = path.join(os.tmpdir(), "sc-fab-panel.png"); // upper-right crop fed to RapidOCR
   const tmpMiningCrop = path.join(os.tmpdir(), "sc-mining-crop.png"); // scan-region crop fed to RapidOCR
   const tmpContractCrop = path.join(os.tmpdir(), "sc-contract-crop.png"); // offers-panel crop fed to RapidOCR
+  const tmpHoverCrop = path.join(os.tmpdir(), "sc-fab-hover-crop.png"); // blueprint-list crop fed to RapidOCR
   let busy = false;
   let busyAt = 0;             // when the current tick set busy (watchdog against a wedged loop)
   const TICK_WATCHDOG_MS = 15000; // if a tick has "held" busy this long, it hung — force re-arm
@@ -669,6 +681,11 @@ function startFabCapture({ port, configDir, onStatus, devTools = false }) {
     // Offer to tick blueprints the kiosk shows that we have no record of. Its own opt-in,
     // and enough on its own to justify arming the loop — it needs no upload and no token.
     const claim = cfg.fabClaim === true;
+    // Hover-only claiming: its own opt-in, nested under `claim` above — see the settings-page
+    // warning this pairs with. Off by default because it trusts the kiosk's "Owned" filter to
+    // still be on; with it off the list also shows blueprints the player does not own, and the
+    // hover tooltip would name those too.
+    const claimHover = claim && cfg.fabClaimHover === true;
     // The Mining Assistant (refinery timers + signature scanner) also reads the screen;
     // refinery/mineable reads are routed to its tracker server-side in /api/screen-read.
     // 🔑 The opt-in alone is NOT enough — the widget also has to be able to use the answer.
@@ -904,6 +921,28 @@ function startFabCapture({ port, configDir, onStatus, devTools = false }) {
           if (rr.kind === "fabricator" && rr.item) { read = rr; renderSrc = panel.img; } // rr.crop is panel-relative
         } catch (e) { console.warn("[fab-capture] RapidOCR re-read failed, using Windows OCR:", e && e.message); }
       }
+      // Pass 2b — the claim prompt's HOVER fallback. Pass 1/2 above only ever resolve an item once
+      // one is fully SELECTED (the right panel renders its name); if the player is just hovering
+      // the list instead, `read.item` is still null here. The kiosk's own hover tooltip already
+      // names whatever's under the cursor, so re-read the list's bounds (wide enough to catch the
+      // tooltip wherever it lands — see hoverListCrop) and try to resolve THAT. Claim-only, on
+      // PURPOSE: there is no render to capture from a hover, so this never touches `renderSrc`,
+      // and is independent of `fab` (image capture) the same way the claim prompt itself is.
+      if (read.kind === "fabricator" && !read.item && claimHover && cfg.rapidOcr !== false) {
+        try {
+          const list = hoverListCrop(shot, cap.width, cap.height);
+          fs.writeFileSync(tmpHoverCrop, list.img.toPNG());
+          const lines = await ocrRapidLines(tmpHoverCrop);
+          const r2b = await fetch(`http://localhost:${port}/api/screen-read`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lines, w: list.w, h: list.h, fabHoverCrop: true }),
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          });
+          const rr2 = await r2b.json();
+          if (rr2.kind === "fabricator" && rr2.item) read = rr2; // rr2.viaHover marks it claim-only below
+        } catch (e) { console.warn("[fab-capture] hover-tooltip re-read failed:", e && e.message); }
+      }
       // Pass 3 — same dual-engine idea, for the mining signature: once pass 1 says the scanner is
       // up (its own HUD text, or a signature already parsed), re-read JUST the configured scan
       // region with RapidOCR. Windows OCR mangles this number often enough that most scans never
@@ -1080,6 +1119,11 @@ function startFabCapture({ port, configDir, onStatus, devTools = false }) {
             });
           } catch (e) { console.warn("[fab-claim] seen post failed:", e && e.message); }
         }
+        // A hover-resolved read has no render to capture — the item was never actually selected,
+        // so the right panel still says "select a blueprint" underneath. Stop here regardless of
+        // `fab`; falling through would burn several polls failing hasRender() and reporting a
+        // real, capturable item as "stuck", which is simply wrong for something never selected.
+        if (read.viaHover) { pendingItem = null; return; }
         if (!fab) { pendingItem = null; return; } // image capture disabled — ignore kiosk frames
         const item = read.item; // canonical UUID — settle key + local file name
         // One display name can map to several distinct same-named items (e.g. the 3 sizes of
