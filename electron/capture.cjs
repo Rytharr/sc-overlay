@@ -940,6 +940,10 @@ function startFabCapture({ port, configDir, onStatus, devTools = false }) {
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
           const rr2 = await r2b.json();
+          // TEMP DEBUG — remove once "hover claim not detecting" is understood. Is this pass even
+          // being reached, what did RapidOCR see in the crop, and did it resolve?
+          console.log(`[fab-hover-debug] tick=${Date.now() - busyAt}ms crop=${list.w}x${list.h}@${Math.round(cap.width * 0.15)},${Math.round(cap.height * 0.20)} ` +
+            `lines=${JSON.stringify(lines.map((l) => l.text))} resolved=${rr2.kind === "fabricator" && rr2.item ? `"${rr2.name}"` : "none"}`);
           if (rr2.kind === "fabricator" && rr2.item) read = rr2; // rr2.viaHover marks it claim-only below
         } catch (e) { console.warn("[fab-capture] hover-tooltip re-read failed:", e && e.message); }
       }
