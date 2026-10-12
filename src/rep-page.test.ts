@@ -603,5 +603,66 @@ const bars = (spec: [boolean, number][]): RepBarRead[] =>
     (r.layout?.cards[0]?.label.x ?? 0) > 1200, `[card0 x=${r.layout?.cards[0]?.label.x}]`);
 }
 
+// ── A page carrying TWO section words: the CARDS pick, not the y-order ───────────────────────
+// 🔴 MEASURED ON RYTHARR'S LIVE 4.10 CAREER TAB, 2026-09-13. Covalex's page shows the faction's
+// STANDING line AND a HAULING career ladder. `below.find(...)` took STANDING for sitting 64px
+// higher, scored FactionReputation against the HAULING tiles on screen (0/7) and refused
+// `no-scope` — while Hauling, which this giver awards on 819 of its missions, was never tried.
+// The real refusal line, verbatim:
+//   candidates=["STANDING"@y359->FactionReputation/..., "HAULING"@y423->Hauling]  picked="STANDING"
+{
+  const COV: Record<string, string[]> = {
+    "Covalex Independent Contractors": ["FactionReputation", "Hauling", "Courier"],
+  };
+  // The 8 Hauling ranks, 4-up in two rows, exactly as the tiles sit on the page.
+  const tiles = (y: number, names: string[]) =>
+    names.map((n, i) => L(1434 + i * 320, y, 150, 15, n));
+  const career = frame([
+    L(664, 151, 162, 27, "Q SEARCH"),
+    L(810, 296, 297, 19, "ADAGIO HOLDINGS"),
+    L(820, 449, 305, 18, "ECKHART SECURITY"),
+    L(1382, 153, 88, 18, "CAREER"),
+    L(1553, 152, 97, 19, "DOSSIER"),
+    L(2784, 143, 24, 23, "x"),
+    L(1404, 266, 609, 38, "COVALEX"),          // the heading
+    L(1402, 326, 108, 18, "NEUTRAL"),
+    L(1419, 359, 120, 22, "STANDING"),          // decoy: higher, but no ladder under it
+    L(1419, 423, 259, 22, "HAULING"),           // the real section, 64px lower
+    ...tiles(669, ["NOT ELIGIBLE", "TRAINEE", "ROOKIE", "JUNIOR"]),
+    ...tiles(995, ["MEMBER", "EXPERIENCED", "SENIOR", "MASTER"]),
+    L(970, 1299, 159, 23, "33,243,460"),
+  ]);
+  const r = readRepPage(career, SCOPES, COV);
+  check("two sections on one page: the ladder decides, not the y-order",
+    r.layout?.scope === "Hauling", `[${r.layout?.scope ?? r.refusal}]`);
+  check("...and it names the section it actually used",
+    r.layout?.sectionRaw === "HAULING", `[${r.layout?.sectionRaw}]`);
+  check("...with all 8 Hauling ranks located, in order",
+    r.layout?.cards.map((c) => c.rank).join(",") === "0,1,2,3,4,5,6,7",
+    `[${r.layout?.cards.map((c) => c.rank).join(",")}]`);
+  // The losing candidate must still be REPORTED, or the refusal diagnostics lose their evidence.
+  check("...and the rejected section was genuinely weighed, not skipped",
+    r.tried.some((t) => t.scope === "FactionReputation" && t.matched === 0),
+    JSON.stringify(r.tried));
+
+  // Same page, with the icon glyph OCR glued onto the header as a stray letter.
+  const noisy = frame(career.lines.map((l) => (l.text === "HAULING" ? { ...l, text: "i HAULING" } : l)));
+  const rn = readRepPage(noisy, SCOPES, COV);
+  check("a stray leading glyph on the section header still resolves",
+    rn.layout?.scope === "Hauling", `[${rn.layout?.scope ?? rn.refusal}]`);
+  // ...and the punctuation forms the same header came back as on other ticks.
+  for (const prefix of ["\\ ", ": ", "0 "]) {
+    const v = frame(career.lines.map((l) => (l.text === "HAULING" ? { ...l, text: prefix + "HAULING" } : l)));
+    check(`...${JSON.stringify(prefix)} too`,
+      readRepPage(v, SCOPES, COV).layout?.scope === "Hauling");
+  }
+  // The bound that makes dropping a leading token safe. If a future dataset ships a section name
+  // starting with a 1-2 character word, this fails loudly rather than silently mis-splitting it.
+  const shortFirstWord = [...new Set(Object.values(SCOPES).map((s) => s.displayName).filter(Boolean))]
+    .filter((n) => (n!.trim().split(/\s+/)[0] ?? "").length <= 2);
+  check("no shipped section name starts with a word short enough to be mistaken for OCR noise",
+    shortFirstWord.length === 0, JSON.stringify(shortFirstWord));
+}
+
 console.log(failed ? `\nFAILED (${failed})` : "\nall rep-page checks passed");
 process.exit(failed ? 1 : 0);

@@ -248,6 +248,30 @@ export function barSearchBox(line: OcrLine, frameW: number, frameH: number, next
  *  larger rather than merely largest is what stops a page we are not looking at — or a frame
  *  caught mid-transition — producing a confident heading out of whatever happened to be tall. */
 const HEADING_MARGIN = 1.25;
+/**
+ * The scope keys a section-header line names, or null.
+ *
+ * 🔴 TOLERATES ONE STRAY LEADING TOKEN, because the 4.10 page glues an icon glyph onto the
+ * header often enough to matter. Measured on Rytharr's live sidecar, 2026-09-13: the SAME
+ * header came back as `"HAULING"`, `"\ HAULING"`, `": HAULING"` and `"i HAULING"` on different
+ * ticks — the punctuation forms normalise away on their own, but a glyph OCR'd as a LETTER
+ * survives `normRep` and refused the whole page `no-section`. `"0 REFUELING"` is the same bug on
+ * another section, so this is not one faction's quirk.
+ *
+ * 🔑 Bounded to a token of ≤2 characters, and only ever CONSULTED AFTER the whole line failed —
+ * so it can only ever turn a refusal into a match, never change one that already resolved. Safe
+ * against the closed vocabulary by measurement, not by hope: no shipped section display name
+ * begins with a word that short (all 23 checked; asserted in rep-page.test.ts, so a dataset that
+ * later adds one fails loudly instead of being silently mis-split).
+ */
+function sectionKeysFor(text: string, byDisplay: Map<string, string[]>): string[] | null {
+  const n = normRep(text);
+  const direct = byDisplay.get(n);
+  if (direct) return direct;
+  const words = n.split(" ");
+  if (words.length > 1 && words[0].length <= 2) return byDisplay.get(words.slice(1).join(" ")) ?? null;
+  return null;
+}
 
 function findHeading(lines: OcrLine[]): { line: OcrLine; decisive: boolean } | null {
   const sorted = [...lines].filter((l) => l.text.trim().length >= 3).sort((a, b) => b.h - a.h);
@@ -376,34 +400,57 @@ export function readRepPage(
     const arr = byDisplay.get(k);
     if (arr) arr.push(key); else byDisplay.set(k, [key]);
   }
-  const sectionLine = below.find((l) => byDisplay.has(normRep(l.text)));
-  if (!sectionLine) return { layout: null, refusal: "no-section", tried, factionRaw, giver };
-  const sectionRaw = sectionLine.text.trim();
+  const sectionCands = below.filter((l) => sectionKeysFor(l.text, byDisplay));
+  if (!sectionCands.length) return { layout: null, refusal: "no-section", tried, factionRaw, giver };
+
+  // 🔴 EVERY SECTION ON THE PAGE IS A CANDIDATE, AND THE CARDS PICK THE WINNER — not whichever
+  // one happens to sit highest. This used to be `below.find(...)`, i.e. first-by-y, which is
+  // GEOMETRY in a step whose own rule is "vocabulary, not geometry" — and a page carrying two
+  // section words breaks it outright. Measured on Rytharr's 4.10 CAREER tab, 2026-09-13:
+  //     candidates=["STANDING"@y359 -> FactionReputation, "HAULING"@y423 -> Hauling]
+  // `find` took STANDING for sitting 64px higher, scored FactionReputation's ladder against the
+  // HAULING tiles actually on screen (0/7), and refused `no-scope` — while Hauling, a scope this
+  // giver really does award (819 of its missions), was never tried at all. Scoring every
+  // candidate makes that page resolve on evidence: FactionReputation 0/7 vs Hauling 8/8.
+  let best: { key: string; cards: RepCardBox[]; line: OcrLine } | null = null;
+  let bestMatched = -1;
+  let bestComplete = false;
+  let bestTied = false;
+  for (const cand of sectionCands) {
+    // Cards belong to the section they sit under, so this is per-candidate — a page with two
+    // sections must not score the second one's ladder against the first one's tiles.
+    const cardLines = below.filter((l) => l.y > cand.y + cand.h * 0.5);
+    for (const key of sectionKeysFor(cand.text, byDisplay)!) {
+      if (giverScopeSet && !giverScopeSet.has(key)) continue;   // this giver never awards it
+      const ranks = [...scopes[key].ranks].sort((a, b) => a.minRep - b.minRep);
+      const found = locateLadder(ranks, cardLines, ocr);
+      tried.push({ scope: key, matched: found.length, of: ranks.length });
+      const complete = found.length === ranks.length;
+      if (found.length > bestMatched) {
+        bestMatched = found.length; best = { key, cards: found, line: cand };
+        bestComplete = complete; bestTied = false;
+      } else if (found.length === bestMatched && found.length > 0) {
+        // 🔑 A ladder that is ENTIRELY on screen outranks a partial one with the same absolute
+        // count — otherwise a scrolled page ties a complete 6/6 against a cut-off 6/8 and the
+        // whole read is thrown away as ambiguous when one of them is plainly the better answer.
+        if (complete && !bestComplete) {
+          best = { key, cards: found, line: cand }; bestComplete = true; bestTied = false;
+        } else if (complete === bestComplete) bestTied = true;
+      }
+    }
+  }
+  // Name a section even when nothing scored, so the refusal still says what was looked at.
+  const sectionRaw = (best?.line ?? sectionCands[0]).text.trim();
+  if (!best || bestMatched === 0) return { layout: null, refusal: "no-scope", tried, factionRaw, sectionRaw, giver };
+  if (bestTied) return { layout: null, refusal: "scope-ambiguous", tried, factionRaw, sectionRaw, giver };
 
   // The standing word is whatever sits between the heading and the section header on the
   // heading's own left edge. Diagnostics only — it is the FactionReputation standing, a
   // different scope from the one this section is about, and conflating them is the two-
   // standings-at-once bug the widget already had once.
   const standing = below.find(
-    (l) => l.y < sectionLine.y && Math.abs(l.x - head.line.x) <= head.line.h * 0.6,
+    (l) => l.y < best!.line.y && Math.abs(l.x - head.line.x) <= head.line.h * 0.6,
   );
-
-  const cardLines = below.filter((l) => l.y > sectionLine.y + sectionLine.h * 0.5);
-
-  // Score every candidate ladder by how much of it is actually on screen, in order.
-  let best: { key: string; cards: RepCardBox[] } | null = null;
-  let bestMatched = -1;
-  let bestTied = false;
-  for (const key of byDisplay.get(normRep(sectionRaw))!) {
-    if (giverScopeSet && !giverScopeSet.has(key)) continue;   // this giver never awards it
-    const ranks = [...scopes[key].ranks].sort((a, b) => a.minRep - b.minRep);
-    const found = locateLadder(ranks, cardLines, ocr);
-    tried.push({ scope: key, matched: found.length, of: ranks.length });
-    if (found.length > bestMatched) { bestMatched = found.length; best = { key, cards: found }; bestTied = false; }
-    else if (found.length === bestMatched && found.length > 0) bestTied = true;
-  }
-  if (!best || bestMatched === 0) return { layout: null, refusal: "no-scope", tried, factionRaw, sectionRaw, giver };
-  if (bestTied) return { layout: null, refusal: "scope-ambiguous", tried, factionRaw, sectionRaw, giver };
 
   // 🔴 EVERY rank has to be on screen. A section whose ladder is only partly visible is a
   // scrolled page, and reading a rank index off a partial ladder puts the player at the wrong
