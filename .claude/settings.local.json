@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Write-Output $env:APPDATA; Test-Path \"$env:APPDATA\\\\sc-blueprint-tracker\"; if \\(Test-Path \"$env:APPDATA\\\\sc-blueprint-tracker\"\\) { Get-ChildItem \"$env:APPDATA\\\\sc-blueprint-tracker\" })",
+      "Bash(node -e ' *)",
+      "Bash(cat)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(curl -s -o /dev/null -w \"GET / -> %{http_code}\\\\n\" http://127.0.0.1:18778/)",
+      "Bash(curl -s -o /dev/null -w \"GET /missions.html -> %{http_code}\\\\n\" http://127.0.0.1:18778/missions.html)",
+      "Bash(curl -s --path-as-is -o /tmp/traversal-out.txt -w \"GET /../../../../Windows/win.ini -> %{http_code}\\\\n\" \"http://127.0.0.1:18778/../../../../Windows/win.ini\")",
+      "Read(//tmp/**)",
+      "Bash(curl -s -o /dev/null -w \"POST /api/config \\(loopback\\) -> %{http_code}\\\\n\" -X POST -H \"Content-Type: application/json\" -d '{\"notepadOpen\":true}' http://127.0.0.1:18778/api/config)",
+      "Bash(curl -s --path-as-is -o /dev/null -w \"encoded traversal -> %{http_code}\\\\n\" \"http://127.0.0.1:18778/%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2fWindows/win.ini\")",
+      "Bash(curl -s -o /dev/null -w \"GET /api/config \\(read\\) -> %{http_code}\\\\n\" http://127.0.0.1:18778/api/config)",
+      "Bash(tasklist)",
+      "Bash(wmic process *)",
+      "Bash(powershell -NoProfile -Command 'Get-CimInstance Win32_Process -Filter \"name='\\\\''node.exe'\\\\''\" | Where-Object { $_.CommandLine -like '\\\\''*overlay-server*'\\\\'' } | Select-Object -ExpandProperty ProcessId')",
+      "Bash(git checkout *)"
+    ]
+  }
+}
